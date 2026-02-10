@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.edfplus.info)",
+      "WebFetch(domain:scottplot.net)",
+      "WebFetch(domain:touchsocket.net)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.nuget.org)",
+      "WebFetch(domain:www.touchsocket.net)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet build:*)",
+      "Bash(taskkill /F /PID 38648)",
+      "Bash(cmd /c \"taskkill /F /PID 38648\")",
+      "Bash(cmd /c \"taskkill /F /IM EegAcquisition.exe\")"
+    ]
+  }
+}
