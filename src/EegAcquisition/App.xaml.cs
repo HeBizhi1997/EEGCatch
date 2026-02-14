@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using EegAcquisition.Services.Cache;
 using EegAcquisition.Services.Logging;
 using EegAcquisition.Services.Pipeline;
