@@ -39,7 +39,7 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
         // Read all available data into a span for scanning
         var data = byteBlock.ReadToSpan(available);
 
-        // Scan for header byte 0x2A
+        // ── Step 1: 定位包头 0x2A ────────────────────────────────────────────
         int headerIdx = -1;
         for (int i = 0; i < data.Length; i++)
         {
@@ -52,53 +52,51 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
 
         if (headerIdx < 0)
         {
-            // No header found, discard all bytes
+            // 无包头，丢弃全部字节
             return FilterResult.GoOn;
         }
 
-        // If header is not at start, skip bytes before it and re-enter
         if (headerIdx > 0)
         {
+            // 包头不在起始位置，跳过之前的脏字节
             byteBlock.Position = startPos + headerIdx;
             return FilterResult.GoOn;
         }
 
-        // Header is at index 0
-        int payloadStart = 1;
-        int remainingAfterHeader = data.Length - 1;
+        // ── Step 2: 在包头之后扫描包尾 0x40 0x40 ───────────────────────────
+        // 只有同时确认包头和包尾后，才进入数据拆解阶段
+        // 载荷起始偏移 = 1（跳过包头字节）
+        // 最短有效包尾位置 = 1 + SampleSize（至少一条采样数据）
+        const int payloadStart = 1;
+        int tailIdx = -1;
 
-        // Try expected packet size first (256 samples)
-        if (remainingAfterHeader >= ExpectedPayloadLen + TailSize)
+        for (int i = payloadStart + SampleSize; i <= data.Length - TailSize; i++)
         {
-            int tailIdx = payloadStart + ExpectedPayloadLen;
-            if (data[tailIdx] == Tail && data[tailIdx + 1] == Tail)
+            if (data[i] != Tail || data[i + 1] != Tail)
+                continue;
+
+            // 验证包头到包尾之间的载荷长度是否为 SampleSize 的整数倍
+            int payloadLen = i - payloadStart;
+            if (payloadLen > 0 && payloadLen % SampleSize == 0)
             {
-                var payload = data.Slice(payloadStart, ExpectedPayloadLen);
-                request = ParseSamples(payload);
-                byteBlock.Position = startPos + tailIdx + TailSize;
-                return FilterResult.Success;
+                tailIdx = i;
+                break;
             }
         }
 
-        // Fallback: scan for any valid tail 0x40 0x40 (payload length divisible by 9)
-        for (int i = payloadStart + SampleSize; i < data.Length - 1; i++)
+        if (tailIdx < 0)
         {
-            if (data[i] == Tail && data[i + 1] == Tail)
-            {
-                int payloadLen = i - payloadStart;
-                if (payloadLen > 0 && payloadLen % SampleSize == 0)
-                {
-                    var payload = data.Slice(payloadStart, payloadLen);
-                    request = ParseSamples(payload);
-                    byteBlock.Position = startPos + i + TailSize;
-                    return FilterResult.Success;
-                }
-            }
+            // 包头已找到但包尾尚未到达，等待更多数据
+            byteBlock.Position = startPos;
+            return FilterResult.Cache;
         }
 
-        // Header found but no valid tail yet - cache from header position
-        byteBlock.Position = startPos;
-        return FilterResult.Cache;
+        // ── Step 3: 包头和包尾均已确认，执行完整包的数据拆解 ─────────────
+        int totalPayloadLen = tailIdx - payloadStart;
+        var payload = data.Slice(payloadStart, totalPayloadLen);
+        request = ParseSamples(payload);
+        byteBlock.Position = startPos + tailIdx + TailSize;
+        return FilterResult.Success;
     }
 
     private static EegPacketRequestInfo ParseSamples(ReadOnlySpan<byte> payload)
