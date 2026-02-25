@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using EegAcquisition.Models;
-using Serilog;
 using TouchSocket.Core;
 
 namespace EegAcquisition.Services.Serial;
@@ -123,31 +122,23 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
         };
     }
 
-    // 定义一个合理的阈值，根据你的实际传感器业务调整
-    // 例如：温度不可能超过 1000度，压力不可能超过 10^6 等
-    private const float SANITY_THRESHOLD = 1e6f;
-
+    /// <summary>
+    /// 按协议定义解码符号幅度整数（Sign-Magnitude Int32，小端序）。
+    /// 协议: D3&lt;&lt;24 + D2&lt;&lt;16 + D1&lt;&lt;8 + D0，最高位为符号位（0=正，1=负）。
+    /// 值域: ±2,147,483,647 uV
+    /// </summary>
     public static double DecodeSignMagnitude32(ReadOnlySpan<byte> data)
     {
         if (data.Length < 4)
             throw new ArgumentException("Data must be at least 4 bytes.");
 
-        // 1. 按照 STM32 默认的小端序 (Little-Endian) 读取
-        float result = BinaryPrimitives.ReadSingleLittleEndian(data);
+        // 按小端序组装 32 位无符号整数：value = D3<<24 + D2<<16 + D1<<8 + D0
+        uint raw = BinaryPrimitives.ReadUInt32LittleEndian(data);
 
-        // 2. 数值合法性验证
-        if (float.IsNaN(result) || float.IsInfinity(result) || Math.Abs(result) > SANITY_THRESHOLD)
-        {
-            // 如果解析出的值大得离谱，尝试按大端序 (Big-Endian) 解析对比
-            float beValue = BinaryPrimitives.ReadSingleBigEndian(data);
+        // 最高位为符号位，其余 31 位为幅度值
+        bool isNegative = (raw & 0x80000000u) != 0;
+        int magnitude = (int)(raw & 0x7FFFFFFFu);
 
-            Log.Error("⚠️ 检测到异常数值！");
-            Log.Error($"[小端序解析]: {result} (疑似错误)");
-            Log.Error($"[大端序解析]: {beValue} (可能是正确值)");
-
-            return beValue;
-        }
-
-        return result;
+        return isNegative ? -magnitude : magnitude;
     }
 }
