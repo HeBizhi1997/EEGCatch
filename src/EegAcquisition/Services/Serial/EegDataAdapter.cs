@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using EegAcquisition.Models;
+using Serilog;
 using TouchSocket.Core;
 
 namespace EegAcquisition.Services.Serial;
@@ -10,7 +11,7 @@ namespace EegAcquisition.Services.Serial;
 /// Protocol format:
 ///   Header(0x2A) + N×[PacketNum(1B) + Ch1(4B) + Ch2(4B)] + Tail(0x40 0x40)
 ///
-/// Each sample group is 9 bytes. Channel data is IEEE 754 float LE.
+/// Each sample group is 9 bytes. Channel data is sign-magnitude 32-bit LE.
 /// </summary>
 public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestInfo>
 {
@@ -80,8 +81,8 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
             }
         }
 
-        // Fallback: scan for any valid 2-byte tail (payload length divisible by 9)
-        for (int i = payloadStart + SampleSize; i + 1 < data.Length; i++)
+        // Fallback: scan for any valid tail 0x40 0x40 (payload length divisible by 9)
+        for (int i = payloadStart + SampleSize; i < data.Length - 1; i++)
         {
             if (data[i] == Tail && data[i + 1] == Tail)
             {
@@ -110,8 +111,8 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
         {
             int offset = i * SampleSize;
             byte packetNum = payload[offset];
-            double ch1 = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(offset + 1, 4));
-            double ch2 = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(offset + 5, 4));
+            double ch1 = DecodeSignMagnitude32(payload.Slice(offset + 1, 4));
+            double ch2 = DecodeSignMagnitude32(payload.Slice(offset + 5, 4));
             samples[i] = new EegSample(packetNum, ch1, ch2);
         }
 
@@ -120,5 +121,33 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
             Samples = samples,
             SampleCount = sampleCount
         };
+    }
+
+    // 定义一个合理的阈值，根据你的实际传感器业务调整
+    // 例如：温度不可能超过 1000度，压力不可能超过 10^6 等
+    private const float SANITY_THRESHOLD = 1e6f;
+
+    public static double DecodeSignMagnitude32(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 4)
+            throw new ArgumentException("Data must be at least 4 bytes.");
+
+        // 1. 按照 STM32 默认的小端序 (Little-Endian) 读取
+        float result = BinaryPrimitives.ReadSingleLittleEndian(data);
+
+        // 2. 数值合法性验证
+        if (float.IsNaN(result) || float.IsInfinity(result) || Math.Abs(result) > SANITY_THRESHOLD)
+        {
+            // 如果解析出的值大得离谱，尝试按大端序 (Big-Endian) 解析对比
+            float beValue = BinaryPrimitives.ReadSingleBigEndian(data);
+
+            Log.Error("⚠️ 检测到异常数值！");
+            Log.Error($"[小端序解析]: {result} (疑似错误)");
+            Log.Error($"[大端序解析]: {beValue} (可能是正确值)");
+
+            return beValue;
+        }
+
+        return result;
     }
 }
