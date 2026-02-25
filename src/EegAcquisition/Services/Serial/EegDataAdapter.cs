@@ -92,17 +92,16 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
 
     private static EegPacketRequestInfo ParsePacket(ReadOnlySpan<byte> payload)
     {
-        // Layout: pktNum(1) | ch1Block(256) | ch2Block(256)
+        // Layout: pktNum(1) | [ch1Block(4)+ch2Block(4)] * 64 = 512
         byte packetNum = payload[0];
-        var ch1Block = payload.Slice(1, ChannelBlockSize);
-        var ch2Block = payload.Slice(1 + ChannelBlockSize, ChannelBlockSize);
+        var chBlock = payload.Slice(1, ChannelBlockSize * 2);
 
         var samples = new EegSample[SamplesPerPacket];
         for (int i = 0; i < SamplesPerPacket; i++)
         {
             int offset = i * SampleBytes;
-            float ch1 = BinaryPrimitives.ReadSingleLittleEndian(ch1Block.Slice(offset, SampleBytes));
-            float ch2 = BinaryPrimitives.ReadSingleLittleEndian(ch2Block.Slice(offset, SampleBytes));
+            float ch1 = BinaryPrimitives.ReadSingleLittleEndian(chBlock.Slice(offset, SampleBytes));
+            float ch2 = BinaryPrimitives.ReadSingleLittleEndian(chBlock.Slice(offset + 4, SampleBytes));
             samples[i] = new EegSample(packetNum, ch1, ch2);
         }
 
@@ -111,25 +110,5 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
             Samples = samples,
             SampleCount = SamplesPerPacket
         };
-    }
-
-    /// <summary>
-    /// 按协议定义解码符号幅度整数（Sign-Magnitude Int32，小端序）。
-    /// 协议: D3&lt;&lt;24 + D2&lt;&lt;16 + D1&lt;&lt;8 + D0，最高位为符号位（0=正，1=负）。
-    /// 值域: ±2,147,483,647 uV
-    /// </summary>
-    public static double DecodeSignMagnitude32(ReadOnlySpan<byte> data)
-    {
-        if (data.Length < 4)
-            throw new ArgumentException("Data must be at least 4 bytes.");
-
-        // 按小端序组装 32 位无符号整数：value = D3<<24 + D2<<16 + D1<<8 + D0
-        uint raw = BinaryPrimitives.ReadUInt32LittleEndian(data);
-
-        // 最高位为符号位，其余 31 位为幅度值
-        bool isNegative = (raw & 0x80000000u) != 0;
-        int magnitude = (int)(raw & 0x7FFFFFFFu);
-
-        return isNegative ? -magnitude : magnitude;
     }
 }
