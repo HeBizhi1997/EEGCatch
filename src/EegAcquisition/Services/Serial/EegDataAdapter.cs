@@ -7,22 +7,29 @@ namespace EegAcquisition.Services.Serial;
 /// <summary>
 /// Custom TouchSocket data handling adapter for the EEG serial protocol.
 ///
-/// Protocol format:
-///   Header(0x2A) + N×[PacketNum(1B) + Ch1(4B) + Ch2(4B)] + Tail(0x40 0x40)
+/// Protocol format (per packet):
+///   Header  (1B)  : 0x2A
+///   PktNum  (1B)  : 0x01 ~ 0x04
+///   Ch1Data (256B): 64 × 4-byte IEEE-754 LE float values
+///   Ch2Data (256B): 64 × 4-byte IEEE-754 LE float values
+///   Tail    (2B)  : 0x40 0x40
 ///
-/// Each sample group is 9 bytes. Channel data is IEEE 754 float LE.
+/// Total packet size: 516 bytes.
+/// One second = 4 packets (numbered 1-4), each carrying 64 samples per channel.
 /// </summary>
 public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestInfo>
 {
     private const byte Header = 0x2A;
     private const byte Tail = 0x40;
-    private const int TailSize = 2; // 0x40 0x40
-    private const int SampleSize = 9; // 1 + 4 + 4
-    private const int MinPacketSize = 1 + SampleSize + TailSize; // header + 1 sample + tail = 12
-    private const int ExpectedSamples = 256;
-    private const int ExpectedPayloadLen = ExpectedSamples * SampleSize; // 2304
 
-#pragma warning disable CS8765 // Nullability of parameter type doesn't match overridden member
+    private const int SamplesPerPacket = 64;
+    private const int SampleBytes = 4;                               // IEEE-754 single
+    private const int ChannelBlockSize = SamplesPerPacket * SampleBytes; // 256
+    private const int PayloadSize = 1 + ChannelBlockSize + ChannelBlockSize; // pktNum + ch1 + ch2 = 513
+    private const int TailSize = 2;
+    private const int PacketTotalSize = 1 + PayloadSize + TailSize;  // header + payload + tail = 516
+
+#pragma warning disable CS8765
     protected override FilterResult Filter<TByteBlock>(
         ref TByteBlock byteBlock,
         bool beCached,
@@ -30,16 +37,14 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
         ref int tempCapacity)
 #pragma warning restore CS8765
     {
-        if (byteBlock.CanReadLength < MinPacketSize)
+        if (byteBlock.CanReadLength < PacketTotalSize)
             return FilterResult.Cache;
 
         var startPos = byteBlock.Position;
         int available = (int)byteBlock.CanReadLength;
-
-        // Read all available data into a span for scanning
         var data = byteBlock.ReadToSpan(available);
 
-        // Scan for header byte 0x2A
+        // Find next header byte 0x2A
         int headerIdx = -1;
         for (int i = 0; i < data.Length; i++)
         {
@@ -52,73 +57,59 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
 
         if (headerIdx < 0)
         {
-            // No header found, discard all bytes
+            // No header in buffer, discard everything
             return FilterResult.GoOn;
         }
 
-        // If header is not at start, skip bytes before it and re-enter
         if (headerIdx > 0)
         {
+            // Skip garbage bytes before the header
             byteBlock.Position = startPos + headerIdx;
             return FilterResult.GoOn;
         }
 
-        // Header is at index 0
-        int payloadStart = 1;
-        int remainingAfterHeader = data.Length - 1;
-
-        // Try expected packet size first (256 samples)
-        if (remainingAfterHeader >= ExpectedPayloadLen + TailSize)
+        // Header is at index 0; check we have a full packet
+        if (data.Length < PacketTotalSize)
         {
-            int tailIdx = payloadStart + ExpectedPayloadLen;
-            if (data[tailIdx] == Tail && data[tailIdx + 1] == Tail)
-            {
-                var payload = data.Slice(payloadStart, ExpectedPayloadLen);
-                request = ParseSamples(payload);
-                byteBlock.Position = startPos + tailIdx + TailSize;
-                return FilterResult.Success;
-            }
+            byteBlock.Position = startPos;
+            return FilterResult.Cache;
         }
 
-        // Fallback: scan for any valid 2-byte tail (payload length divisible by 9)
-        for (int i = payloadStart + SampleSize; i + 1 < data.Length; i++)
+        // Verify tail at the expected fixed offset
+        int tailOffset = 1 + PayloadSize; // = 514
+        if (data[tailOffset] == Tail && data[tailOffset + 1] == Tail)
         {
-            if (data[i] == Tail && data[i + 1] == Tail)
-            {
-                int payloadLen = i - payloadStart;
-                if (payloadLen > 0 && payloadLen % SampleSize == 0)
-                {
-                    var payload = data.Slice(payloadStart, payloadLen);
-                    request = ParseSamples(payload);
-                    byteBlock.Position = startPos + i + TailSize;
-                    return FilterResult.Success;
-                }
-            }
+            // payload: bytes[1 .. 513]
+            request = ParsePacket(data.Slice(1, PayloadSize));
+            byteBlock.Position = startPos + PacketTotalSize;
+            return FilterResult.Success;
         }
 
-        // Header found but no valid tail yet - cache from header position
-        byteBlock.Position = startPos;
-        return FilterResult.Cache;
+        // Tail mismatch — this header byte is spurious, skip it and resync
+        byteBlock.Position = startPos + 1;
+        return FilterResult.GoOn;
     }
 
-    private static EegPacketRequestInfo ParseSamples(ReadOnlySpan<byte> payload)
+    private static EegPacketRequestInfo ParsePacket(ReadOnlySpan<byte> payload)
     {
-        int sampleCount = payload.Length / SampleSize;
-        var samples = new EegSample[sampleCount];
+        // Layout: pktNum(1) | ch1Block(256) | ch2Block(256)
+        byte packetNum = payload[0];
+        var ch1Block = payload.Slice(1, ChannelBlockSize);
+        var ch2Block = payload.Slice(1 + ChannelBlockSize, ChannelBlockSize);
 
-        for (int i = 0; i < sampleCount; i++)
+        var samples = new EegSample[SamplesPerPacket];
+        for (int i = 0; i < SamplesPerPacket; i++)
         {
-            int offset = i * SampleSize;
-            byte packetNum = payload[offset];
-            double ch1 = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(offset + 1, 4));
-            double ch2 = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(offset + 5, 4));
+            int offset = i * SampleBytes;
+            float ch1 = BinaryPrimitives.ReadSingleLittleEndian(ch1Block.Slice(offset, SampleBytes));
+            float ch2 = BinaryPrimitives.ReadSingleLittleEndian(ch2Block.Slice(offset, SampleBytes));
             samples[i] = new EegSample(packetNum, ch1, ch2);
         }
 
         return new EegPacketRequestInfo
         {
             Samples = samples,
-            SampleCount = sampleCount
+            SampleCount = SamplesPerPacket
         };
     }
 }
