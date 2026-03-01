@@ -92,16 +92,16 @@ public sealed class EegDataAdapter : CustomDataHandlingAdapter<EegPacketRequestI
 
     private static EegPacketRequestInfo ParsePacket(ReadOnlySpan<byte> payload)
     {
-        // Layout: pktNum(1) | [ch1Block(4)+ch2Block(4)] * 64 = 512
+        // Layout: pktNum(1) | ch1Block(4) * 64+ch2Block(4) * 64 = 512
         byte packetNum = payload[0];
-        var chBlock = payload.Slice(1, ChannelBlockSize * 2);
-
+        var ch1Block = payload.Slice(1, ChannelBlockSize);
+        var ch2Block = payload.Slice(1 + ChannelBlockSize, ChannelBlockSize);
         var samples = new EegSample[SamplesPerPacket];
         for (int i = 0; i < SamplesPerPacket; i++)
         {
             int offset = i * SampleBytes;
-            float ch1 = BinaryPrimitives.ReadSingleLittleEndian(chBlock.Slice(offset, SampleBytes));
-            float ch2 = BinaryPrimitives.ReadSingleLittleEndian(chBlock.Slice(offset + 4, SampleBytes));
+            float ch1 = BinaryPrimitives.ReadSingleLittleEndian(ch1Block.Slice(offset, SampleBytes));
+            float ch2 = BinaryPrimitives.ReadSingleLittleEndian(ch2Block.Slice(offset, SampleBytes));
             samples[i] = new EegSample(packetNum, ch1, ch2);
         }
 
