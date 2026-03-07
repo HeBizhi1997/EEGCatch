@@ -14,7 +14,9 @@
       "Bash(cmd /c \"taskkill /F /PID 38648\")",
       "Bash(cmd /c \"taskkill /F /IM EegAcquisition.exe\")",
       "Bash(powershell -Command:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(python -c \":*)",
+      "Bash(pip install pypdf)"
     ]
   }
 }

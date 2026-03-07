@@ -4,7 +4,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:scottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         xmlns:converters="clr-namespace:EegAcquisition.Converters"
-        Title="脑电数据采集系统" Height="750" Width="1100"
+        Title="脑电数据采集系统" Height="800" Width="1200"
         WindowStartupLocation="CenterScreen"
         xml:lang="zh-CN"
         FontFamily="Microsoft YaHei"
@@ -126,6 +126,37 @@
                         </ComboBox>
                     </StackPanel>
                 </GroupBox>
+
+                <!-- Pulse Sensor -->
+                <GroupBox Header="脉搏传感器 (HKG-07D)" Style="{StaticResource GroupBoxStyle}">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="串口:" VerticalAlignment="Center" Margin="4,0"/>
+                        <ComboBox Width="90" Margin="4,0"
+                                  ItemsSource="{Binding AvailablePorts}"
+                                  SelectedItem="{Binding SelectedPulsePort}"
+                                  IsEnabled="{Binding IsPulseConnected, Converter={StaticResource InverseBoolConverter}}"/>
+                        <Button Style="{StaticResource ButtonStyle}"
+                                Content="连接" Command="{Binding ConnectPulseCommand}"
+                                Visibility="{Binding IsPulseConnected, Converter={StaticResource InverseBoolToVisConverter}}"/>
+                        <Button Style="{StaticResource ButtonStyle}"
+                                Content="断开" Command="{Binding DisconnectPulseCommand}"
+                                Visibility="{Binding IsPulseConnected, Converter={StaticResource BoolToVisConverter}}"/>
+                        <Ellipse Width="12" Height="12" Margin="6,0"
+                                 Fill="{Binding IsPulseConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                        <!-- BPM inline display -->
+                        <Border Margin="8,0,0,0" Background="#1A1A2E" CornerRadius="4"
+                                Padding="10,4" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="❤ " Foreground="#E91E63" FontSize="16"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding PulseRateText}"
+                                           Foreground="#E91E63" FontFamily="Consolas"
+                                           FontSize="20" FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </GroupBox>
             </WrapPanel>
         </Border>
 
@@ -155,6 +186,14 @@
                     <TextBlock Text="{Binding IsFilterEnabled, Converter={StaticResource BoolToTextConverter}, ConverterParameter='ON|OFF'}"
                                FontFamily="Consolas"
                                Foreground="{Binding IsFilterEnabled, Converter={StaticResource BoolToColorConverter}}"/>
+                </StackPanel>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="脉率: "/>
+                    <TextBlock Text="{Binding PulseRateText}" FontFamily="Consolas"
+                               Foreground="#E91E63"/>
                 </StackPanel>
             </StatusBarItem>
         </StatusBar>

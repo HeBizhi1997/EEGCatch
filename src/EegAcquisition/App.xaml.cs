@@ -2,6 +2,7 @@
 using EegAcquisition.Services.Cache;
 using EegAcquisition.Services.Logging;
 using EegAcquisition.Services.Pipeline;
+using EegAcquisition.Services.Pulse;
 using EegAcquisition.Services.Serial;
 using EegAcquisition.Services.SignalProcessing;
 using EegAcquisition.Services.Simulator;
@@ -34,6 +35,7 @@ public partial class App : Application
                 services.AddSingleton<ISignalProcessor>(sp => sp.GetRequiredService<EegFilterProcessor>());
                 services.AddSingleton<IPipelineService, PipelineService>();
                 services.AddSingleton<EegSimulatorService>();
+                services.AddSingleton<IPulseSerialService, PulseSerialService>();
 
                 // ViewModels
                 services.AddSingleton<MainWindowViewModel>();
