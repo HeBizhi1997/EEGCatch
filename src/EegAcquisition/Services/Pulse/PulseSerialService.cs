@@ -28,11 +28,15 @@ public sealed class PulseSerialService : IPulseSerialService
     private byte _mlh;
     private byte _mll;
 
+    private System.Threading.Timer? _pollTimer;
+    private bool _isPolling;
+
     public bool IsConnected => _isConnected;
+    public bool IsPolling => _isPolling;
     public event Action<int>? PulseRateReceived;
 
-    private static readonly byte[] StartCommand = [0xF0, 0xC0, 0xB0];
-    private static readonly byte[] StopCommand  = [0xF0, 0xC1, 0xB1];
+    private static readonly byte[] QueryCommand = [0xF0, 0xC0, 0xB0]; // 查询脉率
+    private static readonly byte[] StopCommand  = [0xF0, 0xC1, 0xB1]; // 停止上传
 
     public PulseSerialService(ILogger<PulseSerialService> logger)
     {
@@ -56,18 +60,48 @@ public sealed class PulseSerialService : IPulseSerialService
         _isConnected = true;
         _state = ParseState.Idle;
 
-        // 发送启动脉率上传命令
-        await Task.Run(() => _port.Write(StartCommand, 0, StartCommand.Length), ct);
+        // 连接后发送一次查询命令
+        await Task.Run(() => _port.Write(QueryCommand, 0, QueryCommand.Length), ct);
         _logger.LogInformation("Pulse sensor connected on {Port}", portName);
+    }
+
+    public void StartPolling(int intervalMs = 1000)
+    {
+        if (!_isConnected) return;
+        StopPolling();
+        _isPolling = true;
+        _pollTimer = new System.Threading.Timer(_ => SendQuery(), null, 0, intervalMs);
+        _logger.LogInformation("Pulse polling started, interval={Interval}ms", intervalMs);
+    }
+
+    public void StopPolling()
+    {
+        _isPolling = false;
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+    }
+
+    private void SendQuery()
+    {
+        if (_port == null || !_port.IsOpen) return;
+        try
+        {
+            _port.Write(QueryCommand, 0, QueryCommand.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Pulse poll send failed");
+        }
     }
 
     public async Task DisconnectAsync()
     {
         if (_port == null || !_isConnected) return;
 
+        StopPolling();
+
         try
         {
-            // 发送停止命令
             if (_port.IsOpen)
             {
                 await Task.Run(() =>
@@ -154,6 +188,7 @@ public sealed class PulseSerialService : IPulseSerialService
 
     public void Dispose()
     {
+        StopPolling();
         if (_isConnected)
             DisconnectAsync().GetAwaiter().GetResult();
         _port?.Dispose();

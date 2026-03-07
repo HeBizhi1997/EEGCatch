@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.ComponentModel;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using EegAcquisition.Services.Cache;
@@ -14,7 +15,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _displayTimer;
 
     private const int SampleRate = 256;
-    private const double SamplePeriod = 1.0 / SampleRate; // ~0.00390625s between samples
+    private const double SamplePeriod = 1.0 / SampleRate;
 
     private double[] _displayCh1 = [];
     private double[] _displayCh2 = [];
@@ -27,6 +28,12 @@ public partial class MainWindow : Window
     private ScottPlot.Plottables.Crosshair? _crosshairCh2;
     private ScottPlot.Plottables.Annotation? _annotationCh1;
     private ScottPlot.Plottables.Annotation? _annotationCh2;
+
+    // BPM chart: 滚动显示最近 BpmHistorySize 个心跳读数
+    private const int BpmHistorySize = 300;
+    private readonly double[] _bpmHistory = new double[BpmHistorySize];
+    private ScottPlot.Plottables.Signal? _signalBpm;
+    private bool _bpmDirty;
 
     public MainWindow(
         MainWindowViewModel viewModel,
@@ -47,6 +54,9 @@ public partial class MainWindow : Window
         WpfPlotCh1.MouseLeave += WpfPlotCh1_MouseLeave;
         WpfPlotCh2.MouseMove += WpfPlotCh2_MouseMove;
         WpfPlotCh2.MouseLeave += WpfPlotCh2_MouseLeave;
+
+        // 监听 PulseRate 属性变化，更新 BPM 图表缓冲区
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         _displayTimer = new DispatcherTimer
         {
@@ -70,6 +80,21 @@ public partial class MainWindow : Window
         WpfPlotCh2.Plot.XLabel("时间 (s)");
 
         SetupDisplayBuffers(_viewModel.DisplayWindowSeconds);
+        InitBpmPlot();
+    }
+
+    private void InitBpmPlot()
+    {
+        WpfPlotBpm.Plot.Title("脉率 (BPM)");
+        WpfPlotBpm.Plot.YLabel("BPM");
+        WpfPlotBpm.Plot.XLabel("采样序号");
+
+        // period=1 表示每个采样点间隔 1 个序号单位（实际约 1 秒/次轮询）
+        _signalBpm = WpfPlotBpm.Plot.Add.Signal(_bpmHistory, period: 1.0);
+        _signalBpm.Color = ScottPlot.Color.FromHex("#E91E63");
+        WpfPlotBpm.Plot.Axes.SetLimitsX(0, BpmHistorySize);
+        WpfPlotBpm.Plot.Axes.SetLimitsY(0, 200);
+        WpfPlotBpm.Refresh();
     }
 
     private void SetupDisplayBuffers(int windowSeconds)
@@ -187,11 +212,34 @@ public partial class MainWindow : Window
         WpfPlotCh2.Plot.Axes.AutoScaleY();
         WpfPlotCh1.Refresh();
         WpfPlotCh2.Refresh();
+
+        // BPM 图表：只在有新数据时刷新
+        if (_bpmDirty)
+        {
+            _bpmDirty = false;
+            WpfPlotBpm.Plot.Axes.AutoScaleY();
+            WpfPlotBpm.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// 每当 PulseRate 属性变化时，将新值写入 BPM 滚动缓冲区（左移 + 尾部追加）。
+    /// </summary>
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MainWindowViewModel.PulseRate)) return;
+
+        int bpm = _viewModel.PulseRate;
+        // 向左滚动一位，新值写在末尾
+        Array.Copy(_bpmHistory, 1, _bpmHistory, 0, BpmHistorySize - 1);
+        _bpmHistory[BpmHistorySize - 1] = bpm;
+        _bpmDirty = true;
     }
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
         _displayTimer.Stop();
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.Dispose();
     }
 }

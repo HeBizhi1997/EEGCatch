@@ -73,6 +73,9 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     private bool _isPulseConnected;
 
     [ObservableProperty]
+    private bool _isPulsePolling;
+
+    [ObservableProperty]
     private string _pulseRateText = "-- bpm";
 
     [ObservableProperty]
@@ -354,6 +357,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         {
             await _pulseService.DisconnectAsync();
             IsPulseConnected = false;
+            IsPulsePolling = false;
             PulseRateText = "-- bpm";
             PulseRate = 0;
             StatusMessage = "脉搏传感器已断开";
@@ -362,6 +366,25 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         {
             StatusMessage = $"脉搏传感器断开出错: {ex.Message}";
             _logger.LogError(ex, "Error disconnecting pulse sensor");
+        }
+    }
+
+    [RelayCommand]
+    private void TogglePulsePolling()
+    {
+        if (!IsPulseConnected) return;
+
+        if (IsPulsePolling)
+        {
+            _pulseService.StopPolling();
+            IsPulsePolling = false;
+            StatusMessage = "脉搏轮询已停止";
+        }
+        else
+        {
+            _pulseService.StartPolling(1000); // 每秒发送一次查询
+            IsPulsePolling = true;
+            StatusMessage = "脉搏轮询已开启 (1次/秒)";
         }
     }
 
