@@ -4,7 +4,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:scottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         xmlns:converters="clr-namespace:EegAcquisition.Converters"
-        Title="脑电数据采集系统" Height="800" Width="1200"
+        Title="脑电数据采集系统" Height="1050" Width="1200"
         WindowStartupLocation="CenterScreen"
         xml:lang="zh-CN"
         FontFamily="Microsoft YaHei"
@@ -201,11 +201,13 @@
         <!-- Center: Waveform Display -->
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="2*"/>
+                <RowDefinition Height="2*" MinHeight="80"/>
                 <RowDefinition Height="4"/>
-                <RowDefinition Height="2*"/>
+                <RowDefinition Height="2*" MinHeight="80"/>
                 <RowDefinition Height="4"/>
-                <RowDefinition Height="*" MinHeight="80"/>
+                <RowDefinition Height="*"  MinHeight="60"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="*"  MinHeight="80"/>
             </Grid.RowDefinitions>
 
             <!-- Channel 1 Waveform -->
@@ -222,9 +224,25 @@
 
             <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" ResizeDirection="Rows"/>
 
-            <!-- BPM Waveform -->
+            <!-- BPM -->
             <GroupBox Grid.Row="4" Header="脉率 (BPM)" Margin="4">
                 <scottPlot:WpfPlot x:Name="WpfPlotBpm"/>
+            </GroupBox>
+
+            <GridSplitter Grid.Row="5" HorizontalAlignment="Stretch" ResizeDirection="Rows"/>
+
+            <!-- Spectrum: Ch1 (left) + Ch2 (right) -->
+            <GroupBox Grid.Row="6" Header="频谱分析 (0–50 Hz)" Margin="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="4"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <scottPlot:WpfPlot x:Name="WpfPlotSpec1" Grid.Column="0"/>
+                    <GridSplitter Grid.Column="1" VerticalAlignment="Stretch" ResizeDirection="Columns"/>
+                    <scottPlot:WpfPlot x:Name="WpfPlotSpec2" Grid.Column="2"/>
+                </Grid>
             </GroupBox>
         </Grid>
     </DockPanel>

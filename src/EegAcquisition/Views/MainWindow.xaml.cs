@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using EegAcquisition.Services.Cache;
 using EegAcquisition.Services.Pipeline;
+using EegAcquisition.Services.SignalProcessing;
 using EegAcquisition.ViewModels;
 
 namespace EegAcquisition.Views;
@@ -34,6 +35,19 @@ public partial class MainWindow : Window
     private readonly double[] _bpmHistory = new double[BpmHistorySize];
     private ScottPlot.Plottables.Signal? _signalBpm;
     private bool _bpmDirty;
+
+    // FFT spectrum chart
+    private const int FftSize = 512;
+    private const double FreqResolution = (double)SampleRate / FftSize; // 0.5 Hz
+    private const int SpecBins = FftSize / 2 + 1;                       // 257
+    private const int SpecDisplayBins = (int)(50.0 / FreqResolution) + 1; // bins up to 50 Hz
+    private readonly double[] _fftRe   = new double[FftSize];
+    private readonly double[] _fftIm   = new double[FftSize];
+    private readonly double[] _specMag1 = new double[SpecBins];
+    private readonly double[] _specMag2 = new double[SpecBins];
+    private ScottPlot.Plottables.Signal? _signalSpec1;
+    private ScottPlot.Plottables.Signal? _signalSpec2;
+    private int _specTickCounter;
 
     public MainWindow(
         MainWindowViewModel viewModel,
@@ -81,6 +95,7 @@ public partial class MainWindow : Window
 
         SetupDisplayBuffers(_viewModel.DisplayWindowSeconds);
         InitBpmPlot();
+        InitSpecPlots();
     }
 
     private void InitBpmPlot()
@@ -95,6 +110,27 @@ public partial class MainWindow : Window
         WpfPlotBpm.Plot.Axes.SetLimitsX(0, BpmHistorySize);
         WpfPlotBpm.Plot.Axes.SetLimitsY(0, 200);
         WpfPlotBpm.Refresh();
+    }
+
+    private void InitSpecPlots()
+    {
+        // Ch1 spectrum
+        WpfPlotSpec1.Plot.Title("通道1 频谱");
+        WpfPlotSpec1.Plot.XLabel("频率 (Hz)");
+        WpfPlotSpec1.Plot.YLabel("幅值");
+        _signalSpec1 = WpfPlotSpec1.Plot.Add.Signal(_specMag1, FreqResolution);
+        _signalSpec1.Color = ScottPlot.Color.FromHex("#2196F3");
+        WpfPlotSpec1.Plot.Axes.SetLimitsX(0, 50);
+        WpfPlotSpec1.Refresh();
+
+        // Ch2 spectrum
+        WpfPlotSpec2.Plot.Title("通道2 频谱");
+        WpfPlotSpec2.Plot.XLabel("频率 (Hz)");
+        WpfPlotSpec2.Plot.YLabel("幅值");
+        _signalSpec2 = WpfPlotSpec2.Plot.Add.Signal(_specMag2, FreqResolution);
+        _signalSpec2.Color = ScottPlot.Color.FromHex("#4CAF50");
+        WpfPlotSpec2.Plot.Axes.SetLimitsX(0, 50);
+        WpfPlotSpec2.Refresh();
     }
 
     private void SetupDisplayBuffers(int windowSeconds)
@@ -220,6 +256,29 @@ public partial class MainWindow : Window
             WpfPlotBpm.Plot.Axes.AutoScaleY();
             WpfPlotBpm.Refresh();
         }
+
+        // 频谱：约每秒更新一次（每 30 个 tick）
+        if (++_specTickCounter >= 30 && _lastDisplaySamples >= FftSize)
+        {
+            _specTickCounter = 0;
+            UpdateSpectrumPlots();
+        }
+    }
+
+    private void UpdateSpectrumPlots()
+    {
+        // 取最新的 FftSize 个样本（从显示缓冲区末尾）
+        int offset = _lastDisplaySamples - FftSize;
+        var span1 = _displayCh1.AsSpan(offset, FftSize);
+        var span2 = _displayCh2.AsSpan(offset, FftSize);
+
+        FftHelper.ComputeMagnitudes(span1, _specMag1, _fftRe, _fftIm);
+        FftHelper.ComputeMagnitudes(span2, _specMag2, _fftRe, _fftIm);
+
+        WpfPlotSpec1.Plot.Axes.AutoScaleY();
+        WpfPlotSpec2.Plot.Axes.AutoScaleY();
+        WpfPlotSpec1.Refresh();
+        WpfPlotSpec2.Refresh();
     }
 
     /// <summary>
