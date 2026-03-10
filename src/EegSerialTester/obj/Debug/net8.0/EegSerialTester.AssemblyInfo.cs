@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("EegSerialTester")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+04164ef2b695a31890ebf045604d3720ea639c3b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+aa8a18daa4fc69495e5feb89eeb20cfd5d44b0be")]
 [assembly: System.Reflection.AssemblyProductAttribute("EegSerialTester")]
 [assembly: System.Reflection.AssemblyTitleAttribute("EegSerialTester")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
