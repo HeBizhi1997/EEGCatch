@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using EegAcquisition.Models;
 using EegAcquisition.Services.Cache;
 using EegAcquisition.Services.Pipeline;
+using EegAcquisition.Services.Pulse;
 using EegAcquisition.Services.Serial;
 using EegAcquisition.Services.SignalProcessing;
 using EegAcquisition.Services.Simulator;
@@ -20,6 +21,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IEegRingBuffer _ringBuffer;
     private readonly EegSimulatorService _simulator;
     private readonly EegFilterProcessor _filter;
+    private readonly IPulseSerialService _pulseService;
     private readonly ILogger<MainWindowViewModel> _logger;
 
     private readonly DispatcherTimer _recordingTimer;
@@ -63,6 +65,19 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _displayWindowIndex = 1; // default: 10s
 
+    // ── 脉搏传感器 ──────────────────────────────────────────────────
+    [ObservableProperty]
+    private string _selectedPulsePort = "";
+
+    [ObservableProperty]
+    private bool _isPulseConnected;
+
+    [ObservableProperty]
+    private string _pulseRateText = "-- bpm";
+
+    [ObservableProperty]
+    private int _pulseRate;
+
     public int DisplayWindowSeconds => WindowOptions[Math.Clamp(DisplayWindowIndex, 0, WindowOptions.Length - 1)];
 
     public ObservableCollection<string> AvailablePorts { get; } = new();
@@ -73,6 +88,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         IEegRingBuffer ringBuffer,
         EegSimulatorService simulator,
         EegFilterProcessor filter,
+        IPulseSerialService pulseService,
         ILogger<MainWindowViewModel> logger)
     {
         _serialPortService = serialPortService;
@@ -80,9 +96,11 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         _ringBuffer = ringBuffer;
         _simulator = simulator;
         _filter = filter;
+        _pulseService = pulseService;
         _logger = logger;
 
         _serialPortService.PacketReceived += OnPacketReceived;
+        _pulseService.PulseRateReceived += OnPulseRateReceived;
 
         _recordingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _recordingTimer.Tick += (_, _) =>
@@ -300,9 +318,66 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ── 脉搏传感器命令 ─────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task ConnectPulseAsync()
+    {
+        if (IsPulseConnected) return;
+        if (string.IsNullOrEmpty(SelectedPulsePort))
+        {
+            StatusMessage = "请选择脉搏传感器串口";
+            return;
+        }
+
+        try
+        {
+            StatusMessage = $"正在连接脉搏传感器 {SelectedPulsePort}...";
+            await _pulseService.ConnectAsync(SelectedPulsePort);
+            IsPulseConnected = true;
+            PulseRateText = "-- bpm";
+            StatusMessage = $"脉搏传感器已连接 {SelectedPulsePort}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"脉搏传感器连接失败: {ex.Message}";
+            _logger.LogError(ex, "Failed to connect pulse sensor on {Port}", SelectedPulsePort);
+        }
+    }
+
+    [RelayCommand]
+    private async Task DisconnectPulseAsync()
+    {
+        if (!IsPulseConnected) return;
+
+        try
+        {
+            await _pulseService.DisconnectAsync();
+            IsPulseConnected = false;
+            PulseRateText = "-- bpm";
+            PulseRate = 0;
+            StatusMessage = "脉搏传感器已断开";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"脉搏传感器断开出错: {ex.Message}";
+            _logger.LogError(ex, "Error disconnecting pulse sensor");
+        }
+    }
+
+    private void OnPulseRateReceived(int bpm)
+    {
+        Helpers.DispatcherHelper.RunOnUI(() =>
+        {
+            PulseRate = bpm;
+            PulseRateText = bpm > 0 ? $"{bpm} bpm" : "-- bpm";
+        });
+    }
+
     public void Dispose()
     {
         _serialPortService.PacketReceived -= OnPacketReceived;
+        _pulseService.PulseRateReceived -= OnPulseRateReceived;
         _recordingTimer.Stop();
     }
 }

@@ -22,7 +22,8 @@ public sealed class EegSimulatorService : IDisposable
 
     // Waveform parameters
     private const int SampleRate = 256;
-    private const int SamplesPerPacket = 256; // 1 second of data per packet
+    private const int PacketsPerSecond = 4;
+    private const int SamplesPerPacket = SampleRate / PacketsPerSecond; // 64 samples per packet
     private const double Ch1FreqHz = 10.0;    // Alpha rhythm
     private const double Ch2FreqHz = 22.0;    // Beta rhythm
     private const double LineNoiseHz = 50.0;  // Power line interference
@@ -98,8 +99,8 @@ public sealed class EegSimulatorService : IDisposable
         long totalSampleIndex = 0;
         byte packetNumber = 0;
 
-        // Use a periodic timer for precise 1-second intervals
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        // 250ms interval: 4 packets per second, matching real hardware protocol
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1000 / PacketsPerSecond));
 
         try
         {
@@ -122,8 +123,10 @@ public sealed class EegSimulatorService : IDisposable
                                + NoiseAmplitude * (random.NextDouble() * 2 - 1);
 
                     samples[i] = new EegSample(packetNumber, ch1, ch2);
-                    packetNumber = (byte)((packetNumber + 1) & 0xFF);
                 }
+
+                // Packet number cycles 1-4, matching the real hardware
+                packetNumber = (byte)(packetNumber % 4 + 1);
 
                 var packet = new EegDataPacket
                 {
@@ -135,8 +138,8 @@ public sealed class EegSimulatorService : IDisposable
                 await _pipelineService.PushAsync(packet);
                 totalSampleIndex += SamplesPerPacket;
 
-                _logger.LogDebug("Simulator sent packet: {Samples} samples, total={Total}",
-                    SamplesPerPacket, totalSampleIndex);
+                _logger.LogDebug("Simulator sent packet #{PktNum}: {Samples} samples, total={Total}",
+                    packetNumber, SamplesPerPacket, totalSampleIndex);
             }
         }
         catch (OperationCanceledException) { }

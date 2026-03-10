@@ -4,7 +4,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:scottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         xmlns:converters="clr-namespace:EegAcquisition.Converters"
-        Title="脑电数据采集系统" Height="750" Width="1100"
+        Title="脑电数据采集系统" Height="1050" Width="1200"
         WindowStartupLocation="CenterScreen"
         xml:lang="zh-CN"
         FontFamily="Microsoft YaHei"
@@ -126,6 +126,37 @@
                         </ComboBox>
                     </StackPanel>
                 </GroupBox>
+
+                <!-- Pulse Sensor -->
+                <GroupBox Header="脉搏传感器 (HKG-07D)" Style="{StaticResource GroupBoxStyle}">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="串口:" VerticalAlignment="Center" Margin="4,0"/>
+                        <ComboBox Width="90" Margin="4,0"
+                                  ItemsSource="{Binding AvailablePorts}"
+                                  SelectedItem="{Binding SelectedPulsePort}"
+                                  IsEnabled="{Binding IsPulseConnected, Converter={StaticResource InverseBoolConverter}}"/>
+                        <Button Style="{StaticResource ButtonStyle}"
+                                Content="连接" Command="{Binding ConnectPulseCommand}"
+                                Visibility="{Binding IsPulseConnected, Converter={StaticResource InverseBoolToVisConverter}}"/>
+                        <Button Style="{StaticResource ButtonStyle}"
+                                Content="断开" Command="{Binding DisconnectPulseCommand}"
+                                Visibility="{Binding IsPulseConnected, Converter={StaticResource BoolToVisConverter}}"/>
+                        <Ellipse Width="12" Height="12" Margin="6,0"
+                                 Fill="{Binding IsPulseConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                        <!-- BPM inline display -->
+                        <Border Margin="8,0,0,0" Background="#1A1A2E" CornerRadius="4"
+                                Padding="10,4" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="❤ " Foreground="#E91E63" FontSize="16"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding PulseRateText}"
+                                           Foreground="#E91E63" FontFamily="Consolas"
+                                           FontSize="20" FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </GroupBox>
             </WrapPanel>
         </Border>
 
@@ -157,14 +188,26 @@
                                Foreground="{Binding IsFilterEnabled, Converter={StaticResource BoolToColorConverter}}"/>
                 </StackPanel>
             </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="脉率: "/>
+                    <TextBlock Text="{Binding PulseRateText}" FontFamily="Consolas"
+                               Foreground="#E91E63"/>
+                </StackPanel>
+            </StatusBarItem>
         </StatusBar>
 
         <!-- Center: Waveform Display -->
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="2*" MinHeight="80"/>
                 <RowDefinition Height="4"/>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="2*" MinHeight="80"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="*"  MinHeight="60"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="*"  MinHeight="80"/>
             </Grid.RowDefinitions>
 
             <!-- Channel 1 Waveform -->
@@ -177,6 +220,29 @@
             <!-- Channel 2 Waveform -->
             <GroupBox Grid.Row="2" Header="通道2 (Ch2)" Margin="4">
                 <scottPlot:WpfPlot x:Name="WpfPlotCh2"/>
+            </GroupBox>
+
+            <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" ResizeDirection="Rows"/>
+
+            <!-- BPM -->
+            <GroupBox Grid.Row="4" Header="脉率 (BPM)" Margin="4">
+                <scottPlot:WpfPlot x:Name="WpfPlotBpm"/>
+            </GroupBox>
+
+            <GridSplitter Grid.Row="5" HorizontalAlignment="Stretch" ResizeDirection="Rows"/>
+
+            <!-- Spectrum: Ch1 (left) + Ch2 (right) -->
+            <GroupBox Grid.Row="6" Header="频谱分析 (0–50 Hz)" Margin="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="4"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <scottPlot:WpfPlot x:Name="WpfPlotSpec1" Grid.Column="0"/>
+                    <GridSplitter Grid.Column="1" VerticalAlignment="Stretch" ResizeDirection="Columns"/>
+                    <scottPlot:WpfPlot x:Name="WpfPlotSpec2" Grid.Column="2"/>
+                </Grid>
             </GroupBox>
         </Grid>
     </DockPanel>

@@ -27,8 +27,8 @@ public sealed class EdfWriter : IEdfWriter
     private const int NumberOfSignals = 2;
     private const int SamplesPerRecord = 256;
     private const double RecordDuration = 1.0; // seconds
-    private const double PhysicalMin = -500.0; // µV - typical EEG range
-    private const double PhysicalMax = 500.0;  // µV
+    private const double PhysicalMin = -1000.0; // µV - covers normal EEG + transient artifacts
+    private const double PhysicalMax = 1000.0;  // µV
     private const short DigitalMin = -32768;
     private const short DigitalMax = 32767;
 

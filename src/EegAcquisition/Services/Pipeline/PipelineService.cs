@@ -185,16 +185,45 @@ public sealed class PipelineService : IPipelineService
         }
     }
 
+    /// <summary>
+    /// Number of samples per EDF data record (must match EdfWriter.SamplesPerRecord).
+    /// New protocol sends 64 samples/packet × 4 packets/sec = 256 samples/sec.
+    /// </summary>
+    private const int EdfSamplesPerRecord = 256;
+
     private async Task RunStorageStage(CancellationToken ct)
     {
         _logger.LogDebug("Storage stage started");
+
+        // Accumulation buffer: collect samples until we have a full EDF record (256 samples)
+        var accumulator = new EegSample[EdfSamplesPerRecord];
+        int accumulatedCount = 0;
+
         try
         {
             await foreach (var packet in _storageChannel.Reader.ReadAllAsync(ct))
             {
-                if (_isRecording)
+                if (!_isRecording) continue;
+
+                var samples = packet.Samples;
+                int remaining = samples.Length;
+                int srcOffset = 0;
+
+                while (remaining > 0)
                 {
-                    _edfWriter.WriteDataRecord(packet.Samples.AsSpan());
+                    int space = EdfSamplesPerRecord - accumulatedCount;
+                    int toCopy = Math.Min(remaining, space);
+
+                    Array.Copy(samples, srcOffset, accumulator, accumulatedCount, toCopy);
+                    accumulatedCount += toCopy;
+                    srcOffset += toCopy;
+                    remaining -= toCopy;
+
+                    if (accumulatedCount >= EdfSamplesPerRecord)
+                    {
+                        WriteEdfRecord(accumulator);
+                        accumulatedCount = 0;
+                    }
                 }
             }
         }
@@ -202,8 +231,24 @@ public sealed class PipelineService : IPipelineService
         catch (ChannelClosedException) { }
         finally
         {
+            // Flush any remaining samples as a partial record when stopping
+            if (accumulatedCount > 0 && _isRecording)
+            {
+                // Zero-fill the rest so EDF record is complete
+                Array.Clear(accumulator, accumulatedCount, EdfSamplesPerRecord - accumulatedCount);
+                WriteEdfRecord(accumulator);
+            }
+
             _logger.LogDebug("Storage stage stopped");
         }
+    }
+
+    /// <summary>
+    /// Non-async helper to call WriteDataRecord (avoids Span in async context for C# 12).
+    /// </summary>
+    private void WriteEdfRecord(EegSample[] samples)
+    {
+        _edfWriter.WriteDataRecord(samples);
     }
 
     public async ValueTask DisposeAsync()
